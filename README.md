@@ -1,70 +1,61 @@
-# Qwen3-TTS for Mac - Run AI Text-to-Speech Locally on Apple Silicon
+# Qwen3-TTS for Apple Silicon
 
-Run **Qwen3-TTS** text-to-speech AI locally on your MacBook with Apple Silicon (M1, M2, M3, M4). No cloud, no API keys, completely offline.
+Run **Qwen3-TTS** text-to-speech entirely on your Mac. No cloud services, no API keys — everything stays local on Apple Silicon.
 
-**Keywords:** Qwen TTS Mac, Qwen3 TTS Apple Silicon, MLX text to speech, local TTS Mac, voice cloning Mac, AI voice generator MacBook
+Built on [MLX](https://github.com/ml-explore/mlx), Apple's framework for efficient machine-learning inference on M-series chips.
 
 ---
 
 ## Features
 
-- **Voice Cloning** - Clone any voice from a 5-second audio sample
-- **Voice Design** - Create new voices by describing them ("deep narrator", "excited child")
-- **Custom Voices** - 9 built-in voices with emotion and speed control
-- **100% Local** - Runs entirely on your Mac, no internet required
-- **Optimized for M-Series** - Uses Apple's MLX framework for fast GPU inference
+- **Custom Voice** — 9 built-in speakers across English, Chinese, Japanese, and Korean with emotion and speed control
+- **Voice Design** — Create new voices from a text description (_"a warm, elderly British gentleman"_)
+- **Voice Cloning** — Clone any voice from a short audio sample
+- **Voice Manager** — Enroll, update, and delete saved voices
+- **Auto-Transcription** — Optional macOS Speech framework integration for automatic reference transcripts
+- **100% Offline** — Runs entirely on-device using quantised MLX models
 
 ---
 
-## Why MLX Models?
+## Requirements
 
-MLX models are specifically optimized for Apple Silicon. Compared to running standard PyTorch models:
-
-| Metric | Standard Model | MLX Model |
-|--------|----------------|-----------|
-| **RAM Usage** | 10+ GB | 2-3 GB |
-| **CPU Temperature** | 80-90°C | 40-50°C |
-
-*Tested on M4 MacBook Air (fanless) with 1.7B models*
-
-MLX runs natively on the Apple Neural Engine and GPU, meaning better performance with less heat and battery drain.
+| Requirement | Details |
+|-------------|---------|
+| **Hardware** | Apple Silicon Mac (M1 / M2 / M3 / M4) |
+| **OS** | macOS 13+ |
+| **Python** | 3.10+ |
+| **RAM** | ~4–6 GB free for 1.7B models |
+| **ffmpeg** | Required for non-WAV audio conversion |
 
 ---
 
-## Quick Start (5 Minutes)
+## Quick Start
 
-### 1. Clone and setup
+### 1. Clone & install
 
 ```bash
 git clone https://github.com/kapi2800/qwen3-tts-apple-silicon.git
 cd qwen3-tts-apple-silicon
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-brew install ffmpeg
+
+brew install ffmpeg   # needed for audio format conversion
 ```
 
 ### 2. Download models
 
-Pick the models you need from the table below. Click the link, then click "Download" on HuggingFace.
+Download the models you need from HuggingFace and place them in a `models/` directory at the project root.
 
-**Pro Models (1.7B) - Best Quality**
+| Model | Use Case | Link |
+|-------|----------|------|
+| **CustomVoice** | Preset speakers + emotion/speed | [Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit) |
+| **VoiceDesign** | Design voices from descriptions | [Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit) |
+| **Base** | Voice cloning from audio | [Qwen3-TTS-12Hz-1.7B-Base-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit) |
 
-| Model | Use Case | Download |
-|-------|----------|----------|
-| CustomVoice | Preset voices + emotion control | [Download](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit) |
-| VoiceDesign | Create voices from text description | [Download](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit) |
-| Base | Voice cloning from audio | [Download](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit) |
+Your directory should look like this:
 
-**Lite Models (0.6B) - Faster, Less RAM**
-
-| Model | Use Case | Download |
-|-------|----------|----------|
-| CustomVoice | Preset voices + emotion control | [Download](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit) |
-| VoiceDesign | Create voices from text description | [Download](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-VoiceDesign-8bit) |
-| Base | Voice cloning from audio | [Download](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit) |
-
-Put downloaded folders in `models/`:
 ```
 models/
 ├── Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit/
@@ -76,75 +67,97 @@ models/
 
 ```bash
 source .venv/bin/activate
-python main.py
+python app.py
 ```
+
+The main menu shows available modes with a green dot for models that are detected:
+
+```
+ 1  🎙️  Custom Voice    Preset speakers with emotion & speed control       ●
+ 2  🎨  Voice Design    Design a voice from a text description             ●
+ 3  🧬  Voice Cloning   Clone any voice from a reference audio sample      ●
+ q      Exit
+```
+
+Press a key to select — no Enter needed.
 
 ---
 
-## Usage
+## Usage Guide
 
-```
-========================================
- Qwen3-TTS Manager
-========================================
+### Custom Voice
 
-  Pro Models (1.7B - Best Quality)
-  ---------------------------------
-  1. Custom Voice
-  2. Voice Design
-  3. Voice Cloning
+Select a speaker, pick an emotion preset (or write your own), choose a speed, then start typing text to generate speech.
 
-  Lite Models (0.6B - Faster)
-  ---------------------------
-  4. Custom Voice
-  5. Voice Design
-  6. Voice Cloning
+**Speakers:** Ryan, Aiden, Ethan, Chelsie, Serena, Vivian (EN) · Uncle_Fu, Dylan, Eric (ZH) · Ono_Anna (JA) · Sohee (KO)
 
-  q. Exit
+**Emotions:** Normal · Sad · Excited · Angry · Whisper · Custom
 
-Select: 
-```
+**Speeds:** Normal (1.0x) · Fast (1.3x) · Slow (0.8x)
 
-- **Custom Voice**: Pick from preset speakers, set emotion and speed
-- **Voice Design**: Describe a voice (e.g., "calm British narrator")
-- **Voice Cloning**: Provide a reference audio clip to clone
+### Voice Design
+
+Describe the voice you want and the model will synthesise it. Works best with specific descriptions:
+
+> _"An excited young woman speaking quickly with an American accent"_
+
+### Voice Cloning
+
+The cloning manager lets you:
+
+| Option | Description |
+|--------|-------------|
+| **Saved Voices** | Pick from previously enrolled voices |
+| **Enroll New** | Add a voice from an audio sample + transcript |
+| **Quick Clone** | One-shot clone without saving |
+| **Delete / Update** | Manage your voice library |
+
+For best results, use a clean 5–10 second audio clip with a matching transcript.
 
 ---
 
 ## Tips
 
-- Drag `.txt` files directly into the terminal for long text
-- Voice cloning works best with clean 5-10 second audio clips
-- Speed options: Normal (1.0x), Fast (1.3x), Slow (0.8x)
-- Type `q` or `exit` anytime to go back
+- **Long text** — Drag a `.txt` file into the terminal instead of typing
+- **Navigation** — Press `q`, `b`, or `Esc` at any prompt to go back
+- **Auto-play** — Generated audio plays automatically via `afplay`
+- **Transcription** — On macOS, the app can use Apple's built-in Speech framework to auto-transcribe reference audio for cloning
+- **Output** — All generated files are saved to `outputs/` organised by mode
 
 ---
 
-## Requirements
+## Why MLX?
 
-- macOS with Apple Silicon (M1/M2/M3/M4)
-- Python 3.10+
-- RAM: ~3GB for Lite models, ~6GB for Pro models
+MLX models are specifically optimised for Apple Silicon. Compared to standard PyTorch inference:
+
+| Metric | PyTorch | MLX |
+|--------|---------|-----|
+| **RAM** | 10+ GB | 2–3 GB |
+| **CPU Temp** | 80–90°C | 40–50°C |
+
+_Tested on M4 MacBook Air (fanless) with 1.7B 8-bit models._
+
+MLX runs natively on the Apple Neural Engine and GPU — better performance with less heat and battery drain.
 
 ---
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| `mlx_audio not found` | Run `source .venv/bin/activate` first |
-| `Model not found` | Check model folder names match exactly |
-| Audio won't play | Check macOS sound output settings |
+| Problem | Solution |
+|---------|----------|
+| `mlx_audio not found` | Activate the venv: `source .venv/bin/activate` |
+| Model not found | Verify folder names in `models/` match exactly |
+| Audio won't play | Check macOS sound settings; ensure `afplay` works |
+| ffmpeg errors | Install with `brew install ffmpeg` |
 
 ---
 
 ## Related Projects
 
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) - Original Qwen3-TTS by Alibaba
-- [MLX Audio](https://github.com/Blaizzy/mlx-audio) - MLX framework for audio models
-- [MLX Community](https://huggingface.co/mlx-community) - Pre-converted MLX models
-
+- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) — Original model by Alibaba
+- [MLX Audio](https://github.com/Blaizzy/mlx-audio) — MLX framework for audio models
+- [MLX Community](https://huggingface.co/mlx-community) — Pre-converted MLX models
 
 ---
 
-**If this project helped you, please give it a ⭐ star!**
+**If this project helped you, please give it a star!**
