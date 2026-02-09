@@ -6,15 +6,17 @@ Run **Qwen3-TTS** text-to-speech entirely on your Mac. No cloud services, no API
 
 ## Requirements
 
-- Apple Silicon Mac (M1 / M2 / M3 / M4)
+- Apple Silicon Mac (M1 / M2 / M3 / M4) only — Intel Macs are not supported
 - macOS 13+
 - Python 3.10+
 - ~4–6 GB free RAM for 1.7B models
-- ffmpeg for non-WAV audio conversion
+- Optional: ffmpeg for non-WAV audio conversion; on macOS, built-in Apple conversion is used if ffmpeg is not installed
 
 ---
 
 ## Install and run
+
+The app and its MLX stack require Apple Silicon; the steps below assume you are on an M-series Mac.
 
 ```bash
 git clone https://github.com/gyroworld/qwen3-tts-apple-silicon.git
@@ -22,9 +24,9 @@ cd qwen3-tts-apple-silicon
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 
-# Optional: for non-WAV export
+# Optional: ffmpeg for conversion (on macOS, built-in conversion is used if ffmpeg is not installed)
 brew install ffmpeg
 
 python app.py
@@ -82,10 +84,24 @@ _Tested on M4 MacBook Air (fanless) with 1.7B 8-bit models._ MLX runs natively o
 
 | Problem | Solution |
 |---------|----------|
+| App exits immediately / "runs only on Apple Silicon" | Use an Apple Silicon Mac (M1/M2/M3/M4); Intel Macs and non-macOS are not supported |
 | `mlx_audio not found` | Activate the venv: `source .venv/bin/activate` |
 | Model not found | Verify folder names in `models/` match exactly |
 | Audio won't play | Check macOS sound settings; ensure `afplay` works |
-| ffmpeg errors | Install with `brew install ffmpeg` |
+| Conversion fails | The app uses ffmpeg when installed, or (on macOS) built-in Apple conversion. Try `brew install ffmpeg`, or ensure your audio format is supported |
+
+---
+
+## Testing
+
+With the venv active, install with dev dependencies and run tests (no MLX or models required):
+
+```bash
+pip install -e ".[dev]"
+pytest tests/
+```
+
+Or: `python -m pytest tests/`
 
 ---
 
