@@ -15,11 +15,14 @@ import subprocess
 import warnings
 import tempfile
 from datetime import datetime
-import io
-import tty
-import termios
-import select
-import readline  # enables arrow keys / line editing in input() prompts
+import contextlib
+
+from io import StringIO
+from huggingface_hub import snapshot_download
+
+from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.key_binding import KeyBindings
 
 # Suppress harmless library warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -36,10 +39,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt
-from rich.columns import Columns  # used in future expansions
 from rich.rule import Rule
 from rich.text import Text
-from rich.align import Align
 from rich.theme import Theme
 from rich import box
 
@@ -101,6 +102,7 @@ MAX_TEXT_LENGTH = 10000
 MODELS = {
     "1": {
         "name": "Custom Voice",
+        "repo_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
         "folder": "Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit",
         "mode": "custom",
         "output_subfolder": "CustomVoice",
@@ -109,6 +111,7 @@ MODELS = {
     },
     "2": {
         "name": "Voice Design",
+        "repo_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
         "folder": "Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit",
         "mode": "design",
         "output_subfolder": "VoiceDesign",
@@ -117,6 +120,7 @@ MODELS = {
     },
     "3": {
         "name": "Voice Cloning",
+        "repo_id": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
         "folder": "Qwen3-TTS-12Hz-1.7B-Base-8bit",
         "mode": "clone_manager",
         "output_subfolder": "Clones",
@@ -126,7 +130,7 @@ MODELS = {
 }
 
 SPEAKER_MAP = {
-    "English": ["Ryan", "Aiden", "Ethan", "Chelsie", "Serena", "Vivian"],
+    "English": ["Ryan", "Aiden", "Serena", "Vivian"],
     "Chinese": ["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"],
     "Japanese": ["Ono_Anna"],
     "Korean": ["Sohee"],
@@ -150,48 +154,21 @@ SPEED_PRESETS = {
 
 # ─── Utility Functions ────────────────────────────────────────
 
-def flush_input():
-    """Clear the terminal input buffer."""
-    try:
-        termios.tcflush(sys.stdin, termios.TCIOFLUSH)
-    except OSError:
-        pass
-
-
-def read_single_key():
-    """Read a single keypress from the terminal without waiting for Enter."""
-    if not sys.stdin.isatty():
-        return None
-    fd = sys.stdin.fileno()
-    try:
-        old_settings = termios.tcgetattr(fd)
-    except (termios.error, OSError, ValueError):
-        return None
-    try:
-        tty.setcbreak(fd)
-        # Use os.read() on the raw fd to avoid Python's buffered I/O,
-        # which can swallow parts of escape sequences before select() sees them.
-        ch = os.read(fd, 1).decode('utf-8', errors='replace')
-        # Consume escape sequences (arrow keys, etc.) so they don't leak
-        if ch == '\x1b':
-            while select.select([fd], [], [], 0.05)[0]:
-                os.read(fd, 1)
-            return 'escape'
-        return ch
-    finally:
-        try:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        except (termios.error, OSError, ValueError):
-            pass
+def _rich_to_ansi(markup):
+    """Convert Rich markup to an ANSI string for prompt_toolkit prompts."""
+    buf = StringIO()
+    c = Console(file=buf, theme=custom_theme, force_terminal=True)
+    c.print(markup, end="", highlight=False)
+    return buf.getvalue()
 
 
 def safe_line_input(prompt_markup):
     """Read a full line of input with backspace protection for the prompt.
 
-    Unlike input()/Prompt.ask(), backspace can never erase the prompt text —
-    it only deletes characters the user has typed.  Supports normal typing,
-    backspace, Ctrl-C (KeyboardInterrupt), Ctrl-U (clear typed text), and Enter.
-    Returns the entered string, or ``None`` on Ctrl-D with an empty buffer.
+    Uses prompt_toolkit for robust input handling.  Backspace can never erase
+    the prompt text.  Supports normal typing, backspace, Ctrl-C, Ctrl-U
+    (clear typed text), Ctrl-D (go back), and Enter.
+    Returns the entered string, or ``None`` on Ctrl-D / EOF.
     """
     if not sys.stdin.isatty():
         try:
@@ -199,156 +176,76 @@ def safe_line_input(prompt_markup):
         except (EOFError, KeyboardInterrupt):
             return None
 
-    console.print(prompt_markup, end="")
-    sys.stdout.flush()
-
-    fd = sys.stdin.fileno()
     try:
-        old_settings = termios.tcgetattr(fd)
-    except (termios.error, OSError, ValueError):
-        try:
-            return Prompt.ask(prompt_markup)
-        except (EOFError, KeyboardInterrupt):
-            return None
-    buf = []
-    try:
-        tty.setcbreak(fd)
-        while True:
-            # Use os.read() on the raw fd to avoid Python's buffered I/O.
-            # sys.stdin.read(1) can pull multiple bytes into an internal
-            # buffer, causing select() to miss already-buffered bytes of
-            # escape sequences (e.g. arrow keys send \x1b[A as 3 bytes).
-            raw = os.read(fd, 1)
-            if not raw:
-                continue
-
-            # Handle multi-byte UTF-8 sequences
-            byte0 = raw[0]
-            if byte0 >= 0xC0:
-                if byte0 < 0xE0:
-                    raw += os.read(fd, 1)
-                elif byte0 < 0xF0:
-                    raw += os.read(fd, 2)
-                else:
-                    raw += os.read(fd, 3)
-            try:
-                ch = raw.decode('utf-8')
-            except UnicodeDecodeError:
-                continue
-
-            # Ctrl-C
-            if ch == '\x03':
-                sys.stdout.write('\n')
-                sys.stdout.flush()
-                raise KeyboardInterrupt
-
-            # Ctrl-D (EOF) on empty buffer → go back
-            if ch == '\x04':
-                if not buf:
-                    sys.stdout.write('\n')
-                    sys.stdout.flush()
-                    return None
-                continue
-
-            # Enter
-            if ch in ('\n', '\r'):
-                sys.stdout.write('\n')
-                sys.stdout.flush()
-                return ''.join(buf)
-
-            # Backspace / DEL — only delete user-typed characters
-            if ch in ('\x7f', '\x08'):
-                if buf:
-                    buf.pop()
-                    sys.stdout.write('\b \b')
-                    sys.stdout.flush()
-                continue
-
-            # Ctrl-U — clear entire typed text
-            if ch == '\x15':
-                if buf:
-                    sys.stdout.write('\b \b' * len(buf))
-                    sys.stdout.flush()
-                    buf.clear()
-                continue
-
-            # Escape sequences (arrow keys, etc.) — consume and ignore
-            if ch == '\x1b':
-                while select.select([fd], [], [], 0.05)[0]:
-                    os.read(fd, 1)
-                continue
-
-            # Ignore other control characters
-            if ord(ch) < 32:
-                continue
-
-            # Regular printable character
-            buf.append(ch)
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-    finally:
-        try:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        except (termios.error, OSError, ValueError):
-            pass
-
-
-def prompt_menu_choice(prompt_markup, valid_keys):
-    """Fallback menu prompt when single-key input is unavailable."""
-    valid = {str(k).lower() for k in valid_keys}
-    while True:
-        try:
-            response = Prompt.ask(prompt_markup)
-        except (EOFError, KeyboardInterrupt):
-            return None
-        if response is None:
-            return None
-        lower = response.strip().lower()
-        if lower in valid:
-            return lower
-        console.print("  [warning]Invalid selection.[/warning]")
+        return pt_prompt(ANSI(_rich_to_ansi(prompt_markup)))
+    except EOFError:
+        return None
+    except KeyboardInterrupt:
+        raise
 
 
 def instant_menu_choice(prompt_markup, valid_keys):
     """Show a styled prompt and return a key immediately on press.
 
+    Uses prompt_toolkit with key bindings so that the user's selection is
+    returned as soon as a valid key is pressed — no Enter needed.
+
     Returns the selected key (lowercase) if it is in *valid_keys*.
     Returns ``None`` when Escape is pressed (go back).
     """
+    # Non-TTY fallback: use Rich Prompt with Enter-based input.
     if not sys.stdin.isatty():
-        return prompt_menu_choice(prompt_markup, valid_keys)
+        valid = {str(k).lower() for k in valid_keys}
+        while True:
+            try:
+                response = Prompt.ask(prompt_markup)
+            except (EOFError, KeyboardInterrupt):
+                return None
+            if response is None:
+                return None
+            lower = response.strip().lower()
+            if lower in valid:
+                return lower
+            console.print("  [warning]Invalid selection.[/warning]")
 
-    console.print(prompt_markup, end="")
-    sys.stdout.flush()
+    # Build key bindings for instant single-key selection.
+    kb = KeyBindings()
 
-    while True:
-        key = read_single_key()
-        if key is None:
-            sys.stdout.write("\r\033[2K")
-            sys.stdout.flush()
-            return prompt_menu_choice(prompt_markup, valid_keys)
+    for _key in valid_keys:
+        @kb.add(_key)
+        def _handle(event, k=_key):
+            event.app.exit(result=k)
+        if _key.isalpha():
+            @kb.add(_key.upper())
+            def _handle_upper(event, k=_key):
+                event.app.exit(result=k)
 
-        # Ctrl-C → raise as usual
-        if key == '\x03':
-            sys.stdout.write('\r\033[2K')
-            sys.stdout.flush()
-            raise KeyboardInterrupt
+    @kb.add("escape")
+    def _escape(event):
+        event.app.exit(result=None)
 
-        # Escape → clear prompt line & go back
-        if key == 'escape':
-            sys.stdout.write('\r\033[2K')
-            sys.stdout.flush()
-            return None
+    @kb.add("c-c")
+    def _ctrl_c(event):
+        event.app.exit(result="__interrupt__")
 
-        # Backspace (DEL / BS) → silently ignore (no characters to delete)
-        if key in ('\x7f', '\x08'):
-            continue
+    # prompt_toolkit handles both prompt display and input atomically.
+    result = pt_prompt(ANSI(_rich_to_ansi(prompt_markup)), key_bindings=kb)
 
-        lower = key.lower()
-        if lower in valid_keys:
-            console.print(f" [bold cyan]{lower}[/bold cyan]")
-            return lower
-        # Invalid key → silently ignore
+    if result == "__interrupt__":
+        console.print()
+        raise KeyboardInterrupt
+
+    if result is not None:
+        # prompt_toolkit adds a newline; move back up to keep selection on same line
+        sys.stdout.write("\x1b[1A\r\x1b[2K")
+        console.print(f"{prompt_markup}[bold cyan]{result}[/bold cyan]")
+
+    return result
+
+
+def clear_screen():
+    """Clear the terminal screen."""
+    console.clear()
 
 
 def clean_memory():
@@ -388,6 +285,46 @@ def get_smart_path(folder_name):
         if subfolders:
             return os.path.join(snapshots_dir, subfolders[0])
     return full_path
+
+
+def ensure_model(info):
+    """Check for local model; download from HuggingFace if missing."""
+    path = get_smart_path(info["folder"])
+    if path:
+        return path
+
+    repo_id = info["repo_id"]
+    target_dir = os.path.join(MODELS_DIR, info["folder"])
+
+    console.print()
+    console.print(Panel(
+        f"[bold]{info['name']}[/bold] model not found locally.\n\n"
+        f"  Repo:  [cyan]{repo_id}[/cyan]\n"
+        f"  Dest:  [muted]models/{info['folder']}/[/muted]\n\n"
+        "[muted]Downloading from Hugging Face...[/muted]",
+        title="[bold yellow]Downloading Model[/bold yellow]",
+        border_style="yellow",
+    ))
+
+    try:
+        os.makedirs(MODELS_DIR, exist_ok=True)
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=target_dir,
+        )
+    except KeyboardInterrupt:
+        console.print("\n  [warning]Download cancelled.[/warning]")
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+        return None
+    except Exception as e:
+        console.print(f"  [error]Download failed:[/error] {e}")
+        return None
+
+    path = get_smart_path(info["folder"])
+    if path:
+        console.print(f"  [success]Download complete.[/success]")
+    return path
 
 
 def clean_path(user_input):
@@ -534,7 +471,6 @@ def get_text_input():
                 return None
         return text
     except KeyboardInterrupt:
-        flush_input()
         return None
 
 
@@ -544,16 +480,23 @@ def load_model_with_progress(model_path, model_name):
         f"[bold cyan]Loading {model_name}...[/bold cyan]", spinner="dots"
     ):
         try:
-            # Redirect stdout/stderr to suppress transformers/tokenizers warnings
-            # (Mistral regex, unregistered model_type, info prints from mlx_audio)
-            old_out, old_err = sys.stdout, sys.stderr
-            sys.stdout = io.StringIO()
-            sys.stderr = io.StringIO()
+            # Suppress noisy library output at the logging level instead of
+            # redirecting stdout/stderr (which breaks the Rich spinner).
+            noisy_loggers = ["transformers", "mlx_audio", "mlx", "tokenizers"]
+            old_levels = {}
+            for name in noisy_loggers:
+                logger = _logging.getLogger(name)
+                old_levels[name] = logger.level
+                logger.setLevel(_logging.CRITICAL)
             try:
-                model = load_model(model_path)
+                # Redirect stderr only to suppress bare print() calls from
+                # libraries.  stdout stays untouched so the Rich spinner renders.
+                with open(os.devnull, "w") as devnull, \
+                     contextlib.redirect_stderr(devnull):
+                    model = load_model(model_path)
             finally:
-                sys.stdout = old_out
-                sys.stderr = old_err
+                for name, level in old_levels.items():
+                    _logging.getLogger(name).setLevel(level)
             console.print(f"  [success]\u2713 {model_name} loaded[/success]")
             return model
         except (OSError, RuntimeError, ValueError) as e:
@@ -608,7 +551,9 @@ def save_audio_file(temp_folder, subfolder, text_snippet):
                 )
             except FileNotFoundError:
                 pass
-            console.print()
+
+        time.sleep(1)
+        clear_screen()
 
     cleanup_temp_dir(temp_folder)
 
@@ -676,50 +621,70 @@ def print_banner():
 
 def run_custom_session(model_key):
     info = MODELS[model_key]
-    model_path = get_smart_path(info["folder"])
+    model_path = ensure_model(info)
     if not model_path:
-        console.print("[error]Model not found. Check your models/ directory.[/error]")
         return
 
     model = load_model_with_progress(model_path, info["name"])
     if not model:
         return
 
+    clear_screen()
+
     # ── Speaker selection ─────────────────────────────────────
     console.print()
     console.print(Rule("[bold magenta]Custom Voice Setup[/bold magenta]", style="magenta"))
     console.print()
 
-    speaker_table = Table(
-        title="Available Speakers",
-        box=box.ROUNDED,
-        border_style="cyan",
-        title_style="bold cyan",
-        )
-    speaker_table.add_column("Language", style="bold yellow", justify="center")
-    speaker_table.add_column("Speakers", style="white")
+    all_speakers = [n for names in SPEAKER_MAP.values() for n in names]
+    sections = []
+    idx = 1
     for lang, names in SPEAKER_MAP.items():
-        speaker_table.add_row(lang, "  ".join(f"[cyan]{n}[/cyan]" for n in names))
-    console.print(speaker_table)
+        entries = "  ".join(
+            f"[bold cyan]{idx + i}[/bold cyan] [cyan]{n}[/cyan]"
+            for i, n in enumerate(names)
+        )
+        sections.append(f"  [bold yellow]{lang}[/bold yellow]\n  {entries}")
+        idx += len(names)
+    console.print(Panel(
+        "\n\n".join(sections),
+        title="[bold cyan]Available Speakers[/bold cyan]",
+        border_style="cyan",
+        expand=False,
+        padding=(1, 2),
+    ))
     console.print()
 
-    all_speakers = [n for names in SPEAKER_MAP.values() for n in names]
     while True:
         speaker_raw = Prompt.ask(
-            "[accent]Select speaker[/accent] [muted](or [bold]b[/bold] to go back)[/muted]",
+            "[accent]Select speaker[/accent] [muted](number or name, [bold]b[/bold] to go back)[/muted]",
         )
-        speaker = speaker_raw.strip()
-        if speaker.lower() in ("b", "back", "q", "quit", "exit"):
+        choice = speaker_raw.strip()
+        if choice.lower() in ("b", "back", "q", "quit", "exit"):
             clean_memory()
             return
-        if not speaker:
-            console.print("  [warning]Please enter a speaker name.[/warning]")
+        if not choice:
+            console.print("  [warning]Please enter a speaker number or name.[/warning]")
             continue
-        if speaker not in all_speakers:
-            console.print("  [warning]Unknown speaker \u2014 try again.[/warning]")
-            continue
-        console.print(f"  [success]\u2713 Speaker:[/success] {speaker}")
-        break
+        # Try numeric selection first
+        try:
+            num = int(choice)
+            if 1 <= num <= len(all_speakers):
+                speaker = all_speakers[num - 1]
+                console.print(f"  [success]\u2713 Speaker:[/success] {speaker}")
+                break
+            else:
+                console.print(f"  [warning]Enter a number between 1 and {len(all_speakers)}.[/warning]")
+                continue
+        except ValueError:
+            pass
+        # Fall back to name matching
+        if choice in all_speakers:
+            speaker = choice
+            console.print(f"  [success]\u2713 Speaker:[/success] {speaker}")
+            break
+        console.print("  [warning]Unknown speaker \u2014 try again.[/warning]")
+        continue
 
     # ── Emotion selection ─────────────────────────────────────
     console.print()
@@ -788,7 +753,7 @@ def run_custom_session(model_key):
             generate_audio(
                 model=model,
                 text=text,
-                voice=speaker,
+                voice=speaker.lower(),
                 instruct=base_instruct,
                 speed=speed,
                 output_path=temp_dir,
@@ -807,15 +772,15 @@ def run_custom_session(model_key):
 
 def run_design_session(model_key):
     info = MODELS[model_key]
-    model_path = get_smart_path(info["folder"])
+    model_path = ensure_model(info)
     if not model_path:
-        console.print("[error]Model not found. Check your models/ directory.[/error]")
         return
 
     model = load_model_with_progress(model_path, info["name"])
     if not model:
         return
 
+    clear_screen()
     console.print()
     console.print(Rule("[bold magenta]Voice Design[/bold magenta]", style="magenta"))
     console.print()
@@ -875,11 +840,11 @@ def run_design_session(model_key):
 
 def enroll_new_voice():
     """Enroll a new voice for later cloning."""
+    clear_screen()
     console.print()
     console.print(Rule("[bold magenta]Enroll New Voice[/bold magenta]", style="magenta"))
     console.print()
 
-    flush_input()
     name = Prompt.ask("[accent]Voice name[/accent] [muted](e.g. Boss, Mom)[/muted]")
     if not name.strip():
         console.print("  [warning]No name provided.[/warning]")
@@ -893,7 +858,6 @@ def enroll_new_voice():
 
     if len(raw_path) > 300 or "\n" in raw_path:
         console.print("  [error]Input too long or invalid.[/error]")
-        flush_input()
         return
 
     clean_wav_path = convert_audio_if_needed(raw_path)
@@ -953,6 +917,8 @@ def enroll_new_voice():
         os.remove(clean_wav_path)
 
     console.print(f"\n  [success]\u2713 Voice '{safe_name}' enrolled successfully![/success]")
+    time.sleep(1)
+    clear_screen()
 
 
 def _pick_saved_voice(action_label):
@@ -1002,6 +968,7 @@ def _pick_saved_voice(action_label):
 
 def delete_voice():
     """Delete a previously enrolled voice."""
+    clear_screen()
     console.print()
     console.print(Rule("[bold red]Delete Voice[/bold red]", style="red"))
 
@@ -1024,10 +991,13 @@ def delete_voice():
     if os.path.exists(txt_path):
         os.remove(txt_path)
     console.print(f"  [success]\u2713 Voice '{name}' deleted.[/success]")
+    time.sleep(1)
+    clear_screen()
 
 
 def update_voice():
     """Re-enroll a saved voice with a new audio sample and transcript."""
+    clear_screen()
     console.print()
     console.print(Rule("[bold yellow]Update Voice[/bold yellow]", style="yellow"))
 
@@ -1042,7 +1012,6 @@ def update_voice():
 
     if len(raw_path) > 300 or "\n" in raw_path:
         console.print("  [error]Input too long or invalid.[/error]")
-        flush_input()
         return
 
     clean_wav_path = convert_audio_if_needed(raw_path)
@@ -1094,9 +1063,12 @@ def update_voice():
         os.remove(clean_wav_path)
 
     console.print(f"\n  [success]\u2713 Voice '{name}' updated successfully![/success]")
+    time.sleep(1)
+    clear_screen()
 
 
 def run_clone_manager(model_key):
+    clear_screen()
     console.print()
     console.print(Rule("[bold magenta]Voice Cloning[/bold magenta]", style="magenta"))
     console.print()
@@ -1134,14 +1106,15 @@ def run_clone_manager(model_key):
 
     # Load the base model
     info = MODELS[model_key]
-    model_path = get_smart_path(info["folder"])
+    model_path = ensure_model(info)
     if not model_path:
-        console.print("[error]Model not found. Check your models/ directory.[/error]")
         return
 
     model = load_model_with_progress(model_path, "Base Model")
     if not model:
         return
+
+    clear_screen()
 
     ref_audio, ref_text = None, None
     temp_ref_audio = False
@@ -1308,6 +1281,7 @@ def run_clone_manager(model_key):
 # ─── Main Menu ────────────────────────────────────────────────
 
 def main_menu():
+    clear_screen()
     console.print()
     print_banner()
 
@@ -1359,6 +1333,5 @@ if __name__ == "__main__":
             except Exception as e:
                 console.print(f"\n[error]Unexpected error:[/error] {e}")
                 console.print("[muted]Returning to main menu...[/muted]\n")
-                flush_input()
     except KeyboardInterrupt:
         console.print("\n\n[muted]Interrupted. Goodbye![/muted]\n")
