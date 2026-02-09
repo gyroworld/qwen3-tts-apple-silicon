@@ -1302,7 +1302,7 @@ def main_menu():
     console.print(menu)
 
     choice = instant_menu_choice(
-        "[bold white]Select[/bold white] [muted](q=quit)[/muted]: ",
+        "[bold white]Select[/bold white]: ",
         {"1", "2", "3", "q"},
     )
 

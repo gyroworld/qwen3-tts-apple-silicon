@@ -2,36 +2,19 @@
 
 Run **Qwen3-TTS** text-to-speech entirely on your Mac. No cloud services, no API keys — everything stays local on Apple Silicon.
 
-Built on [MLX](https://github.com/ml-explore/mlx), Apple's framework for efficient machine-learning inference on M-series chips.
-
----
-
-## Features
-
-- **Custom Voice** — 9 built-in speakers across English, Chinese, Japanese, and Korean with emotion and speed control
-- **Voice Design** — Create new voices from a text description (_"a warm, elderly British gentleman"_)
-- **Voice Cloning** — Clone any voice from a short audio sample
-- **Voice Manager** — Enroll, update, and delete saved voices
-- **Auto-Transcription** — Optional macOS Speech framework integration for automatic reference transcripts
-- **100% Offline** — Runs entirely on-device using quantised MLX models
-
 ---
 
 ## Requirements
 
-| Requirement | Details |
-|-------------|---------|
-| **Hardware** | Apple Silicon Mac (M1 / M2 / M3 / M4) |
-| **OS** | macOS 13+ |
-| **Python** | 3.10+ |
-| **RAM** | ~4–6 GB free for 1.7B models |
-| **ffmpeg** | Required for non-WAV audio conversion |
+- Apple Silicon Mac (M1 / M2 / M3 / M4)
+- macOS 13+
+- Python 3.10+
+- ~4–6 GB free RAM for 1.7B models
+- ffmpeg for non-WAV audio conversion
 
 ---
 
-## Quick Start
-
-### 1. Clone & install
+## Install and run
 
 ```bash
 git clone https://github.com/gyroworld/qwen3-tts-apple-silicon.git
@@ -41,78 +24,36 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-brew install ffmpeg   # needed for audio format conversion
-```
+# Optional: for non-WAV export
+brew install ffmpeg
 
-### 2. Download models
-
-Download the models you need from HuggingFace and place them in a `models/` directory at the project root.
-
-| Model | Use Case | Link |
-|-------|----------|------|
-| **CustomVoice** | Preset speakers + emotion/speed | [Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit) |
-| **VoiceDesign** | Design voices from descriptions | [Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit) |
-| **Base** | Voice cloning from audio | [Qwen3-TTS-12Hz-1.7B-Base-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit) |
-
-Your directory should look like this:
-
-```
-models/
-├── Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit/
-├── Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit/
-└── Qwen3-TTS-12Hz-1.7B-Base-8bit/
-```
-
-### 3. Run
-
-```bash
-source .venv/bin/activate
 python app.py
 ```
 
-The main menu shows available modes with a green dot for models that are detected:
+Models are **downloaded automatically** the first time you choose each mode (Custom Voice, Voice Design, Voice Cloning). No manual download needed.
 
-```
- 1  🎙️  Custom Voice    Preset speakers with emotion & speed control       ●
- 2  🎨  Voice Design    Design a voice from a text description             ●
- 3  🧬  Voice Cloning   Clone any voice from a reference audio sample      ●
- q      Exit
-```
-
-Press a key to select — no Enter needed.
+Reference: [CustomVoice](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit) · [VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit) · [Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit) (folder names: `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit`, `Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit`, `Qwen3-TTS-12Hz-1.7B-Base-8bit`).
 
 ---
 
-## Usage Guide
+## Features
 
-### Custom Voice
+- **Custom Voice** — 9 built-in speakers (EN, ZH, JA, KO) with emotion and speed control
+- **Voice Design** — Create voices from a text description
+- **Voice Cloning** — Clone any voice from a short audio sample
+- **Voice Manager** — Enroll, update, and delete saved voices
+- **Auto-Transcription** — Optional macOS Speech framework for reference transcripts
+- **100% Offline** — Runs on-device with quantised MLX models
 
-Select a speaker, pick an emotion preset (or write your own), choose a speed, then start typing text to generate speech.
+---
 
-**Speakers:** Ryan, Aiden, Serena, Vivian (EN) · Uncle_Fu, Dylan, Eric (ZH) · Ono_Anna (JA) · Sohee (KO)
+## Usage
 
-**Emotions:** Normal · Sad · Excited · Angry · Whisper · Custom
+Run `python app.py` (from project root with venv active), choose a mode with **1**, **2**, or **3** — a green dot means the model is already present. Follow the prompts.
 
-**Speeds:** Normal (1.0x) · Fast (1.3x) · Slow (0.8x)
-
-### Voice Design
-
-Describe the voice you want and the model will synthesise it. Works best with specific descriptions:
-
-> _"An excited young woman speaking quickly with an American accent"_
-
-### Voice Cloning
-
-The cloning manager lets you:
-
-| Option | Description |
-|--------|-------------|
-| **Saved Voices** | Pick from previously enrolled voices |
-| **Enroll New** | Add a voice from an audio sample + transcript |
-| **Quick Clone** | One-shot clone without saving |
-| **Delete / Update** | Manage your voice library |
-
-For best results, use a clean 5–10 second audio clip with a matching transcript.
+- Drag a `.txt` file into the terminal for long text instead of typing
+- Press `q`, `b`, or `Esc` to go back at any prompt
+- Generated files are saved to `outputs/` by mode
 
 ---
 
@@ -121,23 +62,19 @@ For best results, use a clean 5–10 second audio clip with a matching transcrip
 - **Long text** — Drag a `.txt` file into the terminal instead of typing
 - **Navigation** — Press `q`, `b`, or `Esc` at any prompt to go back
 - **Auto-play** — Generated audio plays automatically via `afplay`
-- **Transcription** — On macOS, the app can use Apple's built-in Speech framework to auto-transcribe reference audio for cloning
+- **Transcription** — On macOS, the app can use Apple's Speech framework to auto-transcribe reference audio for cloning
 - **Output** — All generated files are saved to `outputs/` organised by mode
 
 ---
 
 ## Why MLX?
 
-MLX models are specifically optimised for Apple Silicon. Compared to standard PyTorch inference:
+MLX is optimised for Apple Silicon. Compared to standard PyTorch inference:
 
-| Metric | PyTorch | MLX |
-|--------|---------|-----|
-| **RAM** | 10+ GB | 2–3 GB |
-| **CPU Temp** | 80–90°C | 40–50°C |
+- **RAM** — ~2–3 GB (MLX) vs 10+ GB (PyTorch)
+- **CPU temp** — ~40–50°C (MLX) vs 80–90°C (PyTorch)
 
-_Tested on M4 MacBook Air (fanless) with 1.7B 8-bit models._
-
-MLX runs natively on the Apple Neural Engine and GPU — better performance with less heat and battery drain.
+_Tested on M4 MacBook Air (fanless) with 1.7B 8-bit models._ MLX runs natively on the Apple Neural Engine and GPU for better performance with less heat and battery drain.
 
 ---
 
@@ -160,4 +97,4 @@ MLX runs natively on the Apple Neural Engine and GPU — better performance with
 
 ---
 
-**If this project helped you, please give it a star!**
+If this project helped you, please give it a star!
