@@ -1,5 +1,6 @@
 # Large model files (users download separately)
-models/
+models/*
+!models/.gitkeep
 
 # Virtual environment
 .venv/
