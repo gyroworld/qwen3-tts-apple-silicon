@@ -34,7 +34,7 @@ Built on [MLX](https://github.com/ml-explore/mlx), Apple's framework for efficie
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/kapi2800/qwen3-tts-apple-silicon.git
+git clone https://github.com/gyroworld/qwen3-tts-apple-silicon.git
 cd qwen3-tts-apple-silicon
 
 python3 -m venv .venv
@@ -89,7 +89,7 @@ Press a key to select — no Enter needed.
 
 Select a speaker, pick an emotion preset (or write your own), choose a speed, then start typing text to generate speech.
 
-**Speakers:** Ryan, Aiden, Ethan, Chelsie, Serena, Vivian (EN) · Uncle_Fu, Dylan, Eric (ZH) · Ono_Anna (JA) · Sohee (KO)
+**Speakers:** Ryan, Aiden, Serena, Vivian (EN) · Uncle_Fu, Dylan, Eric (ZH) · Ono_Anna (JA) · Sohee (KO)
 
 **Emotions:** Normal · Sad · Excited · Angry · Whisper · Custom
 
